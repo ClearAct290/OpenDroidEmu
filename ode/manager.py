@@ -1,14 +1,14 @@
-"""Instance manager page: instance cards (star / launch / config info) and the info dialog."""
+"""Instance manager page: instance cards (star / launch / settings / delete / shared folder)."""
 from __future__ import annotations
 
 import time
 
 from PyQt5.QtCore import Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QMenu, QProgressBar,
-                             QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QProgressBar, QPushButton, QScrollArea,
+                             QToolButton, QVBoxLayout, QWidget)
 
-from . import instances, sdk, theme
+from . import sdk, theme
 from .instances import ARCH_LABELS, GFX_LABELS, Instance
 from .util import asset_pixmap
 
@@ -17,8 +17,8 @@ def demo_instance() -> Instance:
     return Instance(id="demo", title="Example - Android 11 for Games", avd_id="Example", arch="x86_64+arm",
                     api=30, api_label="Android 11 (API 30)", flavor="google_apis",
                     image_pkg="system-images;android-30;google_apis;x86_64", gfx="dx", install_dir="",
-                    shared_dir="", disk_mb=8192, alloc="dynamic", cores=4, ram_mb=4096, fps=120, vsync=True,
-                    display="phone", created=time.time(), starred=True, star_ts=1.0)
+                    shared_dir="Example shared folder", disk_mb=8192, alloc="dynamic", cores=4, ram_mb=4096,
+                    fps=120, vsync=True, display="phone", created=time.time(), starred=True, star_ts=1.0)
 
 
 def open_folder(path) -> None:
@@ -39,9 +39,11 @@ class LaunchButton(QPushButton):
 
 class InstanceCard(QFrame):
     launch = pyqtSignal(object, bool)       # inst, recovery
-    info = pyqtSignal(object)
+    edit = pyqtSignal(object)
     star = pyqtSignal(object)
     delete = pyqtSignal(object)
+    kill = pyqtSignal(object)
+    sync = pyqtSignal(object, str)          # inst, "send" | "get" | "downloads"
 
     def __init__(self, inst: Instance, demo: bool = False, parent=None):
         super().__init__(parent)
@@ -77,12 +79,16 @@ class InstanceCard(QFrame):
         self.btn_star.setStyleSheet("QToolButton { font-size: 18pt; padding: 0 4px; }")
         self.btn_star.setCursor(Qt.PointingHandCursor)
         self.btn_star.clicked.connect(lambda: None if self.demo else self.star.emit(self.inst))
-        self.btn_info = QPushButton("Config Info")
-        self.btn_info.clicked.connect(lambda: None if self.demo else self.info.emit(self.inst))
+        self.btn_shared = QPushButton("Shared folder  \u25BE")
+        self.btn_shared.clicked.connect(self._shared_menu)
+        self.btn_edit = QPushButton("Settings")
+        self.btn_edit.clicked.connect(lambda: None if self.demo else self.edit.emit(self.inst))
+        self.btn_delete = QPushButton("Delete")
+        self.btn_delete.setObjectName("dangerBtn")
+        self.btn_delete.clicked.connect(lambda: None if self.demo else self.delete.emit(self.inst))
         self.btn_launch = LaunchButton("Launch")
         self.btn_launch.setObjectName("primary")
         self.btn_launch.setMinimumWidth(110)
-        self.btn_launch.setToolTip("Left click: start Android\nRight click: start in Android Recovery mode")
         self.btn_launch.clicked.connect(lambda: None if self.demo else self.launch.emit(self.inst, False))
         self.btn_launch.rightClicked.connect(lambda: None if self.demo else self.launch.emit(self.inst, True))
 
@@ -93,12 +99,21 @@ class InstanceCard(QFrame):
         text.addWidget(self.lb_detail)
         text.addWidget(self.lb_status)
         text.addWidget(self.bar)
+        for lab in (self.lb_title, self.lb_sub, self.lb_detail):
+            lab.setWordWrap(True)                        # long text wraps instead of widening the card
+            lab.setMinimumWidth(40)
+        top = QHBoxLayout()                              # shared folder + star on top, main buttons below
+        top.setSpacing(8)
+        top.addStretch(1)
+        top.addWidget(self.btn_shared)
+        top.addWidget(self.btn_star)
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
-        buttons.addWidget(self.btn_info)
+        buttons.addWidget(self.btn_edit)
+        buttons.addWidget(self.btn_delete)
         buttons.addWidget(self.btn_launch)
         right = QVBoxLayout()
-        right.addWidget(self.btn_star, 0, Qt.AlignRight)
+        right.addLayout(top)
         right.addStretch(1)
         right.addLayout(buttons)
 
@@ -127,6 +142,7 @@ class InstanceCard(QFrame):
                                     % ("#e5a50a" if inst.starred else theme.hexcol("muted")))
         self.btn_star.setToolTip("Starred - kept at the top. Click to unstar" if inst.starred
                                  else "Star this instance to keep it at the top")
+        idle = self.state == "idle"
         busy = self.state in ("checking", "starting", "booting")
         running = self.state in ("booted", "recovery")
         self.bar.setVisible(busy)
@@ -140,33 +156,60 @@ class InstanceCard(QFrame):
         else:
             self.lb_status.setStyleSheet("")
         self.lb_status.setVisible(bool(text))
-        self.btn_launch.setText("Launch" if self.state == "idle" else ("Running" if running else "Starting..."))
-        self.btn_launch.setEnabled(self.demo or (self.core_ok and self.state == "idle"))
+        self.btn_launch.setText("Launch" if idle else ("Running" if running else "Starting..."))
+        self.btn_launch.setEnabled(self.demo or (self.core_ok and idle))
         if not self.core_ok and not self.demo:
             self.btn_launch.setToolTip("The emulator core isn't installed - press Download Core first.")
         else:
             self.btn_launch.setToolTip("Left click: start Android\nRight click: start in Android Recovery mode")
 
+        self.btn_edit.setEnabled(self.demo or idle)
+        self.btn_edit.setToolTip("Change this instance's settings" if (self.demo or idle)
+                                 else "Close the instance before changing its settings.")
+        self.btn_delete.setEnabled(self.demo or idle)
+        self.btn_delete.setToolTip("Delete this instance and all of its files" if (self.demo or idle)
+                                   else "Close the instance before deleting it.")
+        self.btn_shared.setVisible(bool(inst.shared_dir))
+        can_sync = self.demo or self.state == "booted"
+        self.btn_shared.setEnabled(can_sync)
+        self.btn_shared.setToolTip("Copy files between your shared folder and Android" if can_sync
+                                   else "Available while Android is running.")
+
+    def _shared_menu(self):
+        if self.demo:
+            return
+        menu = QMenu(self)
+        menu.addAction("Send the shared folder to Android", lambda _=False: self.sync.emit(self.inst, "send"))
+        menu.addAction("Get files from Android (ODE_Shared)", lambda _=False: self.sync.emit(self.inst, "get"))
+        menu.addAction("Get Android's Downloads", lambda _=False: self.sync.emit(self.inst, "downloads"))
+        menu.exec_(self.btn_shared.mapToGlobal(self.btn_shared.rect().bottomLeft()))
+
     # ------------------------------------------------------------------ context menu
     def contextMenuEvent(self, e):
         if self.demo:
             return
+        idle = self.state == "idle"
         menu = QMenu(self)
         a_rec = menu.addAction("Launch to Recovery mode")
-        a_rec.setEnabled(self.core_ok and self.state == "idle")
-        a_info = menu.addAction("Config Info")
+        a_rec.setEnabled(self.core_ok and idle)
+        a_set = menu.addAction("Settings")
+        a_set.setEnabled(idle)
         a_dir = menu.addAction("Open instance folder")
         a_dir.setEnabled(self.inst.root.exists())
         menu.addSeparator()
+        a_kill = menu.addAction("Force close")
+        a_kill.setEnabled(not idle)
         a_del = menu.addAction("Delete instance...")
-        a_del.setEnabled(self.state == "idle")
+        a_del.setEnabled(idle)
         act = menu.exec_(e.globalPos())
         if act == a_rec:
             self.launch.emit(self.inst, True)
-        elif act == a_info:
-            self.info.emit(self.inst)
+        elif act == a_set:
+            self.edit.emit(self.inst)
         elif act == a_dir:
             open_folder(self.inst.root)
+        elif act == a_kill:
+            self.kill.emit(self.inst)
         elif act == a_del:
             self.delete.emit(self.inst)
 
@@ -174,9 +217,11 @@ class InstanceCard(QFrame):
 class ManagerPage(QWidget):
     create_requested = pyqtSignal()
     launch = pyqtSignal(object, bool)
-    info = pyqtSignal(object)
+    edit = pyqtSignal(object)
     star = pyqtSignal(object)
     delete = pyqtSignal(object)
+    kill = pyqtSignal(object)
+    sync = pyqtSignal(object, str)
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -250,9 +295,11 @@ class ManagerPage(QWidget):
         for inst in self.store.sorted():
             card = InstanceCard(inst)
             card.launch.connect(self.launch)
-            card.info.connect(self.info)
+            card.edit.connect(self.edit)
             card.star.connect(self.star)
             card.delete.connect(self.delete)
+            card.kill.connect(self.kill)
+            card.sync.connect(self.sync)
             card.set_core_ok(self.core_ok)
             st = self.states.get(inst.id)
             if st:
@@ -273,44 +320,3 @@ class ManagerPage(QWidget):
 
     def running_ids(self) -> list:
         return [i for i, (s, _t) in self.states.items() if s != "idle"]
-
-
-class ConfigDialog(QDialog):
-    def __init__(self, parent, inst: Instance):
-        super().__init__(parent)
-        self.setWindowTitle(f"Config Info - {inst.title}")
-        self.setMinimumWidth(520)
-        self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignRight)
-        form.setHorizontalSpacing(16)
-        for k, v in instances.describe(inst):
-            lab = QLabel(v)
-            lab.setWordWrap(True)
-            lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            key = QLabel(f"<b>{k}</b>")
-            form.addRow(key, lab)
-        note = QLabel("These settings were fixed when the instance was created.")
-        note.setObjectName("muted")
-        close = QPushButton("Close")
-        close.clicked.connect(self.accept)
-        folder = QPushButton("Open instance folder")
-        folder.setEnabled(inst.root.exists())
-        folder.clicked.connect(lambda: open_folder(inst.root))
-        row = QHBoxLayout()
-        row.addWidget(folder)
-        row.addStretch(1)
-        row.addWidget(close)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 16, 18, 14)
-        lay.addLayout(form)
-        lay.addSpacing(6)
-        lay.addWidget(note)
-        lay.addSpacing(6)
-        lay.addLayout(row)
-
-    def showEvent(self, e):
-        super().showEvent(e)
-        # word-wrapped rows: make the height fit the width the dialog really has (Qt sizes it for the hint width)
-        self.layout().activate()
-        self.resize(self.width(), max(self.height(), self.layout().totalHeightForWidth(self.width())))

@@ -1,7 +1,7 @@
 """Light / dark theme: Qt's Fusion style + a matching palette + one stylesheet.
 
 Everything colour-related lives in PALETTES, so the look can be changed in one place.
-col()/hexcol() give other modules (sidebar, guide overlay, instance cards) the same colours.
+col()/hexcol() give other modules (guide overlay, instance cards) the same colours.
 """
 from __future__ import annotations
 
@@ -86,7 +86,6 @@ QFrame#banner { background: @panel2@; border: 1px solid @border@; border-radius:
 QFrame#card { background: @panel@; border: 1px solid @border@; border-radius: 10px; }
 QFrame#card[demo="true"] { border: 1px dashed @accent@; }
 QFrame#guideCard { background: @panel@; border: 2px solid @accent@; border-radius: 12px; }
-QFrame#sidebar { background: @panel@; border: 1px solid @border@; border-radius: 14px; }
 
 QLabel#appTitle { font-size: 15pt; font-weight: 600; }
 QLabel#pageTitle { font-size: 17pt; font-weight: 600; }
@@ -105,6 +104,8 @@ QPushButton#primary { background: @accent@; color: @accent_text@; border: 1px so
 QPushButton#primary:hover { background: @accent_hover@; border-color: @accent_hover@; }
 QPushButton#primary:pressed { background: @accent@; }
 QPushButton#primary:disabled { background: @panel2@; color: @disabled@; border: 1px solid @border@; }
+QPushButton#dangerBtn { color: @danger@; }
+QPushButton#dangerBtn:disabled { color: @disabled@; }
 
 QToolButton { background: transparent; color: @text@; border: none; border-radius: 6px; padding: 4px 8px; }
 QToolButton:hover { background: @hover@; }

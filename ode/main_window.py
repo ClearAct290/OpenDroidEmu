@@ -1,19 +1,20 @@
 """ODE main window: top bar, instance manager / create pages, core + launch flows, guide hooks."""
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import Qt, QUrl, pyqtSlot
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                              QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
-from . import APP_NAME, APP_SHORT, APP_VERSION, DISCLAIMER, instances, paths, sdk, system, theme
+from . import (APP_NAME, APP_SHORT, APP_VERSION, DISCLAIMER, GITHUB_URL, instances, paths, sdk, system, theme,
+               updater)
 from .create_page import CreatePage
 from .download import run_download
 from .guide import GuideOverlay, Step
 from .instances import Store
-from .manager import ConfigDialog, ManagerPage
+from .manager import ManagerPage
 from .session import Session
 from .settings import Settings
-from .sidebar import FloatingSidebar, SidebarPanel
 from .util import app_icon, asset_pixmap, run_task
 
 LICENSE_URL = "https://developer.android.com/studio/terms"
@@ -61,10 +62,10 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.store = Store()
         self.sessions: dict = {}
-        self.sidebars: dict = {}
         self._reached: set = set()          # instance ids that finished booting at least once
         self.core_info = None
         self.update_available = False
+        self.new_app_version = ""           # newer ODE release found on GitHub ("" = none)
         self._guide = None
         self._guide_core = False
         self._accel_checked = False
@@ -94,6 +95,11 @@ class MainWindow(QMainWindow):
         ver.setObjectName("muted")
         self.lb_core = QLabel("")
         self.lb_core.setObjectName("muted")
+        self.btn_update = QPushButton("")
+        self.btn_update.setObjectName("primary")
+        self.btn_update.setToolTip("A new version of ODE is available on GitHub")
+        self.btn_update.clicked.connect(self.show_app_update_dialog)
+        self.btn_update.hide()
         self.btn_core = QPushButton("Download Core")
         self.btn_core.setObjectName("primary")
         self.btn_core.clicked.connect(self.on_core_button)
@@ -107,6 +113,7 @@ class MainWindow(QMainWindow):
         bl.addWidget(title)
         bl.addWidget(ver, 0, Qt.AlignBottom)
         bl.addStretch(1)
+        bl.addWidget(self.btn_update)
         bl.addWidget(self.lb_core)
         bl.addWidget(self.btn_core)
         bl.addWidget(self.btn_guide)
@@ -136,17 +143,16 @@ class MainWindow(QMainWindow):
         fl.addWidget(free, 0)
         root.addWidget(foot)
 
-        # demo sidebar for the guide (child of the window so the overlay can dim it)
-        self.demo_sidebar = SidebarPanel(True, self)
-        self.demo_sidebar.hide()
-
         # ---- wiring
         self.manager.create_requested.connect(self.open_create)
         self.manager.launch.connect(self.on_launch)
-        self.manager.info.connect(lambda inst: ConfigDialog(self, inst).exec_())
+        self.manager.edit.connect(self.on_edit)
         self.manager.star.connect(self.on_star)
         self.manager.delete.connect(self.on_delete)
+        self.manager.kill.connect(self.on_kill)
+        self.manager.sync.connect(self.on_sync)
         self.create.created.connect(self.on_created)
+        self.create.saved.connect(self.on_created)
         self.create.cancelled.connect(lambda: self.stack.setCurrentWidget(self.manager))
 
         self._update_theme_button()
@@ -161,7 +167,32 @@ class MainWindow(QMainWindow):
 
     def run_startup_checks(self):
         self.lb_core.setText("Checking for updates...")
+        run_task(updater.check_for_update, self._app_update_checked)
+
+    def _app_update_checked(self, newer, err):
+        """err is ignored on purpose: being offline (or GitHub being slow) must never bother the user."""
+        if newer and not err:
+            self.new_app_version = newer
+            self.btn_update.setText(f"ODE {newer} available")
+            self.btn_update.show()
+            self.show_app_update_dialog()
         run_task(sdk.core_info, self._startup_info)
+
+    def show_app_update_dialog(self):
+        new = self.new_app_version
+        if not new:
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("ODE update available")
+        box.setText(f"A new version of {APP_NAME} is available!\n\nInstalled: {APP_VERSION}\nNew: {new}")
+        box.setInformativeText(f"Go to the GitHub page to download it:\n{GITHUB_URL}")
+        go = box.addButton("Open GitHub", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.setDefaultButton(go)
+        box.exec_()
+        if box.clickedButton() is go:
+            QDesktopServices.openUrl(QUrl(GITHUB_URL))
 
     def _startup_info(self, info, err):
         installed = sdk.core_installed()
@@ -291,9 +322,16 @@ class MainWindow(QMainWindow):
         self.create.reset()
         self.stack.setCurrentWidget(self.create)
 
-    def on_created(self, inst):
+    def on_created(self, inst):                 # also used after saving edited settings
         self.manager.refresh()
         self.stack.setCurrentWidget(self.manager)
+
+    def on_edit(self, inst):
+        if inst.id in self.sessions:
+            QMessageBox.information(self, "Instance running", "Close the instance before changing its settings.")
+            return
+        self.create.edit(inst)
+        self.stack.setCurrentWidget(self.create)
 
     def on_star(self, inst):
         self.store.toggle_star(inst)
@@ -305,11 +343,42 @@ class MainWindow(QMainWindow):
         r = QMessageBox.question(self, "Delete instance",
                                  f"Delete \"{inst.title}\" and all of its files?\n\n{inst.root}\n\n"
                                  "This can't be undone.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if r != QMessageBox.Yes:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            problem = instances.delete_files(inst)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if problem:                              # keep the entry so the user can try again
+            QMessageBox.warning(self, "Couldn't delete everything", problem)
+            return
+        self.store.remove(inst)
+        self.manager.states.pop(inst.id, None)
+        self.manager.refresh()
+
+    def on_kill(self, inst):
+        s = self.sessions.get(inst.id)
+        if s is None:
+            return
+        r = QMessageBox.question(self, "Force close",
+                                 f"Force close \"{inst.title}\"?\nThe emulator is killed immediately and "
+                                 "anything unsaved inside Android is lost.",
+                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if r == QMessageBox.Yes:
-            instances.delete_files(inst)
-            self.store.remove(inst)
-            self.manager.states.pop(inst.id, None)
-            self.manager.refresh()
+            s.kill()
+
+    def on_sync(self, inst, action: str):
+        s = self.sessions.get(inst.id)
+        if s is None or s.current != "booted":
+            QMessageBox.information(self, "Shared folder", "Start the instance and wait until Android has "
+                                    "booted - files are copied while it is running.")
+            return
+        {"send": s.push_shared, "get": s.pull_shared, "downloads": s.pull_downloads}[action]()
+
+    @pyqtSlot(bool, str)
+    def _session_message(self, ok: bool, text: str):
+        (QMessageBox.information if ok else QMessageBox.warning)(self, "Shared folder", text)
 
     # ================================================================== launching
     def on_launch(self, inst, recovery: bool):
@@ -361,7 +430,7 @@ class MainWindow(QMainWindow):
         self._after_files(inst, recovery)
 
     def _after_files(self, inst, recovery: bool):
-        if self._accel_checked:
+        if self._accel_checked or inst.standalone_arm:       # the x86 hypervisor check doesn't apply to ARM
             self._start_session(inst, recovery)
             return
         self.manager.set_state(inst, "checking", "Checking hardware acceleration...")
@@ -386,6 +455,7 @@ class MainWindow(QMainWindow):
     def _start_session(self, inst, recovery: bool):
         s = Session(inst, recovery)
         s.state.connect(self._session_state)
+        s.message.connect(self._session_message)
         try:
             s.start()
         except Exception as exc:                                   # noqa: BLE001
@@ -408,22 +478,15 @@ class MainWindow(QMainWindow):
         elif st in ("booted", "recovery"):
             self._reached.add(inst.id)
             self.manager.set_state(inst, st)
-            if inst.id not in self.sidebars:
-                sb = FloatingSidebar(s)
-                self.sidebars[inst.id] = sb
-                sb.show()
         elif st == "stopped":
-            sb = self.sidebars.pop(inst.id, None)
-            if sb:
-                sb.timer.stop()
-                sb.close()
-                sb.deleteLater()
             self.sessions.pop(inst.id, None)
             self.manager.set_state(inst, "idle")
             if inst.id not in self._reached and s.proc is not None and s.proc.returncode not in (None, 0):
+                why = instances.diagnose_log(inst)
                 QMessageBox.warning(self, "The emulator closed",
                                     f"\"{inst.title}\" closed before Android finished booting (exit code "
-                                    f"{s.proc.returncode}).\n\nThe log is here:\n{inst.log_path}")
+                                    f"{s.proc.returncode}).\n\n" + (why + "\n\n" if why else "")
+                                    + f"The log is here:\n{inst.log_path}")
             self._reached.discard(inst.id)
 
     # ================================================================== theme / about
@@ -468,32 +531,26 @@ class MainWindow(QMainWindow):
         m, c = self.manager, self.create
         return {
             "core": self.btn_core, "guide": self.btn_guide, "theme": self.btn_theme, "about": self.btn_about,
-            "list": m.scroll, "card_star": m.demo_card.btn_star, "card_info": m.demo_card.btn_info,
+            "list": m.scroll, "card_star": m.demo_card.btn_star, "card_edit": m.demo_card.btn_edit,
+            "card_shared": m.demo_card.btn_shared, "card_delete": m.demo_card.btn_delete,
             "card_launch": m.demo_card.btn_launch, "create_button": m.btn_create,
             "grp_basic": c.grp_basic, "grp_gfx": c.grp_gfx, "grp_storage": c.grp_storage,
             "grp_perf": c.grp_perf, "create_buttons": c.btn_create,
-            "sidebar": self.demo_sidebar, "sidebar_kill": self.demo_sidebar.buttons["kill"],
         }.get(name)
 
     def guide_enter(self, step: Step):
+        if step.page == "create" and self.create.edit_inst is not None:
+            self.create.reset()                  # the guide shows the 'create' form, not an instance being edited
         self.stack.setCurrentWidget(self.create if step.page == "create" else self.manager)
         self.manager.set_demo(step.demo_card)
         self._guide_core = step.show_core
         self.update_core_ui()
-        if step.demo_sidebar:
-            self.demo_sidebar.adjustSize()
-            self.demo_sidebar.move(self.width() - self.demo_sidebar.width() - 60,
-                                   max(80, (self.height() - self.demo_sidebar.height()) // 2))
-            self.demo_sidebar.show()
-        else:
-            self.demo_sidebar.hide()
         if self._guide:
             self._guide.raise_()
         QApplication.processEvents()
 
     def guide_exit(self):
         self._guide_core = False
-        self.demo_sidebar.hide()
         self.manager.set_demo(False)
         self.stack.setCurrentWidget(self.manager)
         self.update_core_ui()
@@ -509,6 +566,4 @@ class MainWindow(QMainWindow):
                 return
             for s in list(self.sessions.values()):
                 s.kill()
-            for sb in list(self.sidebars.values()):
-                sb.close()
         e.accept()

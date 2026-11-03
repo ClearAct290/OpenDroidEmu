@@ -18,11 +18,11 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import paths, system
+from . import APP_VERSION, paths, system
 
 REPO_BASE = "https://dl.google.com/android/repository/"
 RELEASE_NOTES_URL = "https://developer.android.com/studio/releases/emulator"
-USER_AGENT = "OpenDroidEmu/1.0 (Android SDK repository client)"
+USER_AGENT = f"OpenDroidEmu/{APP_VERSION} (Android SDK repository client)"
 HOST_OS = "windows" if system.IS_WIN else "macosx" if system.IS_MAC else "linux"
 
 # flavor id -> (display name, repository sub-folder)
@@ -231,13 +231,13 @@ def core_info() -> CoreInfo:
 
 
 def get_system_images(flavor: str) -> list:
-    """x86 / x86_64 stable images of one flavor, oldest -> newest."""
+    """x86 / x86_64 / arm64-v8a stable images of one flavor, oldest -> newest."""
     def load():
         _label, sub = FLAVORS[flavor]
         url, data = _fetch_repo(sub, "sys-img2")
         best: dict = {}
         for p in _parse_packages(data, url):
-            if (p.path.startswith("system-images;") and p.abi in ("x86", "x86_64")
+            if (p.path.startswith("system-images;") and p.abi in ("x86", "x86_64", "arm64-v8a")
                     and p.tag == flavor and p.channel == "channel-0"):
                 if p.path not in best or p.revision > best[p.path].revision:
                     best[p.path] = p

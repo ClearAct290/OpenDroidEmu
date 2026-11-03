@@ -2,5 +2,7 @@
 
 APP_NAME = "OpenDroidEmu"
 APP_SHORT = "ODE"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
+GITHUB_URL = "https://github.com/ClearAct290/OpenDroidEmu"
+VERSION_URL = "https://raw.githubusercontent.com/ClearAct290/OpenDroidEmu/main/version.json"
 DISCLAIMER = "OpenDroidEmu is not related to the OpenDroid Custom ROM project."

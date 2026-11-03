@@ -5,6 +5,8 @@ import json
 import os
 import re
 import shutil
+import stat
+import sys
 import time
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -16,9 +18,24 @@ ARCH_LABELS = {
     "x86_64": "x86_64",
     "x86+arm": "x86 + ARM apps",
     "x86_64+arm": "x86_64 + ARM apps",
+    "arm64": "Standalone ARM (arm64)",
 }
+# arch key -> ABI of the system image it uses ("+arm" = x86 image with ARM app translation)
+ABI_OF = {"x86": "x86", "x86_64": "x86_64", "x86+arm": "x86", "x86_64+arm": "x86_64", "arm64": "arm64-v8a"}
+# ABI -> value of hw.cpu.arch in the AVD config
+CPU_ARCH_OF = {"x86": "x86", "x86_64": "x86_64", "arm64-v8a": "arm64"}
 # Google's x86 images translate ARM apps from Android 9, x86_64 images from Android 11.
 ARM_MIN_API = {"x86": 28, "x86_64": 30}
+
+
+def abi_for(arch: str) -> str:
+    return ABI_OF.get(arch, "x86_64")
+
+
+def translates_arm(arch: str) -> bool:
+    """x86 / x86_64 image with ARM app translation (not the standalone ARM option)."""
+    return arch.endswith("+arm")
+
 
 GFX_LABELS = {"dx": "DirectX", "gl": "OpenGL", "vk": "Vulkan"}
 GPU_MODE = {"dx": "angle_indirect", "gl": "host", "vk": "host"}
@@ -68,11 +85,20 @@ class Instance:
 
     @property
     def abi(self) -> str:
-        return "x86_64" if self.arch.startswith("x86_64") else "x86"
+        return abi_for(self.arch)
+
+    @property
+    def cpu_arch(self) -> str:
+        return CPU_ARCH_OF[self.abi]
 
     @property
     def arm(self) -> bool:
-        return self.arch.endswith("+arm")
+        """ARM *app translation* on an x86 image."""
+        return translates_arm(self.arch)
+
+    @property
+    def standalone_arm(self) -> bool:
+        return self.arch == "arm64"
 
     @property
     def root(self) -> Path:
@@ -162,7 +188,7 @@ def config_text(inst: Instance) -> str:
         ("hw.battery", "yes"),
         ("hw.camera.back", "virtualscene" if inst.api >= 29 else "emulated"),
         ("hw.camera.front", "emulated"),
-        ("hw.cpu.arch", inst.abi),
+        ("hw.cpu.arch", inst.cpu_arch),
         ("hw.cpu.ncore", str(inst.cores)),
         ("hw.dPad", "no"),
         ("hw.device.manufacturer", "Google"),
@@ -204,8 +230,76 @@ def write_avd(inst: Instance) -> None:
     (inst.avd_home / f"{inst.avd_id}.ini").write_text(ini, encoding="utf-8")
 
 
-def delete_files(inst: Instance) -> None:
-    shutil.rmtree(inst.root, ignore_errors=True)
+def _rmtree(path: Path) -> None:
+    """rmtree that also removes read-only files (Windows keeps some of the emulator's files read-only)."""
+    def handler(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass                                    # reported by the caller: the folder is still there
+    kw = {"onexc": handler} if sys.version_info >= (3, 12) else {"onerror": handler}
+    shutil.rmtree(path, **kw)
+
+
+def delete_files(inst: Instance) -> str:
+    """Delete the instance's folder. Returns "" on success, otherwise a message for the user."""
+    root = inst.root
+    if not root.is_absolute() or len(root.parts) < 2 or root.name != inst.avd_id:
+        return f"ODE refuses to delete an unexpected location:\n{root}"
+    if not root.exists():
+        return ""
+    _rmtree(root)
+    if root.exists():
+        return ("Some files couldn't be deleted - they are probably still in use (is the emulator still "
+                f"shutting down?).\n\n{root}\n\nClose anything that uses them and press Delete again.")
+    return ""
+
+
+# ------------------------------------------------------------- editing an existing instance
+# Architecture, Android version (and with it the system image type) and disk space are fixed when an
+# instance is created. Everything else can be edited.
+LOCKED_NOTE = "Architecture, Android version and disk space can't be changed after an instance is created."
+
+
+def has_disk_data(inst: Instance) -> bool:
+    """True once the emulator has created disk images for the instance (i.e. after its first launch)."""
+    try:
+        for p in inst.avd_dir.iterdir():
+            n = p.name.lower()
+            if n.startswith(("userdata", "cache", "sdcard", "encryptionkey")) or n == "snapshots":
+                return True
+    except OSError:
+        pass
+    return inst.log_path.exists()
+
+
+def relocate_unused(inst: Instance, new_install_dir: str) -> None:
+    """Move an instance that was never started (its folder holds only ODE's own config files)."""
+    old_root = inst.root
+    inst.install_dir = new_install_dir
+    write_avd(inst)
+    if old_root != inst.root:
+        _rmtree(old_root)
+
+
+def diagnose_log(inst: Instance) -> str:
+    """A plain-language reason for a failed start, found at the end of the emulator log ("" if unknown)."""
+    try:
+        with open(inst.log_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 16384))
+            tail = f.read().decode("utf-8", "replace").lower()
+    except OSError:
+        return ""
+    if "is not supported by the qemu2 emulator" in tail:
+        return ("The emulator refused to run this instance because its CPU type doesn't match your PC. Google's "
+                "stock emulator runs x86 images on x86 PCs and ARM images on ARM PCs (like Apple Silicon). "
+                "Create a new instance with an architecture that matches your PC.")
+    if "requires hardware acceleration" in tail:
+        return ("The emulator needs hardware acceleration: turn on virtualization in your BIOS and, on Windows, "
+                "enable Windows Hypervisor Platform (or Hyper-V).")
+    return ""
 
 
 def recovery_ramdisk(inst: Instance):
@@ -237,22 +331,3 @@ def emulator_args(inst: Instance, port: int, recovery: bool = False) -> list:
         if ramdisk:
             args += ["-ramdisk", str(ramdisk)]
     return args
-
-
-def describe(inst: Instance) -> list:
-    return [
-        ("Title", inst.title),
-        ("Android version", inst.api_label),
-        ("System image", f"{sdk.FLAVORS[inst.flavor][0]}  ({inst.image_pkg})"),
-        ("Architecture", ARCH_LABELS[inst.arch]),
-        ("Graphics API", GFX_LABELS[inst.gfx]),
-        ("Display", DISPLAYS[inst.display][0]),
-        ("CPU cores", str(inst.cores)),
-        ("RAM", f"{inst.ram_mb:,} MB"),
-        ("Disk limit", f"{inst.disk_mb:,} MB"),
-        ("Disk allocation", ALLOC_LABELS[inst.alloc]),
-        ("Max FPS", f"{inst.fps}   (V-Sync {'on' if inst.vsync else 'off'})"),
-        ("Instance files", str(inst.root)),
-        ("Shared folder", inst.shared_dir or "None"),
-        ("Created", time.strftime("%Y-%m-%d %H:%M", time.localtime(inst.created))),
-    ]

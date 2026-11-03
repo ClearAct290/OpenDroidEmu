@@ -20,7 +20,6 @@ class Step:
     target: str = ""            # name understood by MainWindow.guide_target()
     page: str = "manager"       # "manager" | "create"
     demo_card: bool = False     # show the example instance card
-    demo_sidebar: bool = False  # show the example sidebar
     show_core: bool = False     # force-show the Download/Update Core button
     bug: int = 84               # Bugdroid size in px
 
@@ -38,40 +37,43 @@ STEPS = [
     Step("Light / Dark", "Switch between the light and the dark theme here. You can also do it from this "
          "guide.", "theme"),
     Step("About", "Version info, license notes and the disclaimer: ODE is not related to the OpenDroid "
-         "Custom ROM project.", "about"),
+         "Custom ROM project. When a new ODE version is out on GitHub, ODE tells you at startup.", "about"),
     Step("Instance manager",
          "All your Android devices (\"instances\") are listed here. The card you see is only an example - "
          "it isn't a real instance.", "list", demo_card=True),
     Step("Star", "Star an instance to keep it at the top of the list. Starred instances stay first; "
          "newer instances are placed right below them.", "card_star", demo_card=True),
-    Step("Config Info", "Shows everything you chose when the instance was created: Android version, "
-         "graphics API, cores, RAM, disk limit and more.", "card_info", demo_card=True),
+    Step("Settings", "Change an instance after it was created: its title, display, graphics API, shared "
+         "folder, CPU cores, RAM, max FPS and V-Sync. Only the architecture, the Android version and the "
+         "disk space are fixed. Close the instance first.", "card_edit", demo_card=True),
+    Step("Shared folder", "Shows up when the instance has a shared folder. While Android is running, send "
+         "your folder to Android, or get files (and Android's Downloads) back onto your PC.",
+         "card_shared", demo_card=True),
+    Step("Delete", "Deletes the instance and all of its files, after asking you to confirm. Starred or not - "
+         "it can't be undone.", "card_delete", demo_card=True),
     Step("Launch",
          "Left click starts Android. The first time, ODE asks to download the system files it needs. "
-         "Right click starts the instance in Android Recovery mode instead.", "card_launch", demo_card=True),
+         "Right click starts the instance in Android Recovery mode instead. Right click the card for more, "
+         "like Force close if an instance ever hangs.", "card_launch", demo_card=True),
     Step("Create instance", "Press this to make a new instance. Let's look at the creation page.",
          "create_button"),
     Step("Title and Android version",
-         "Type a title and choose x86, x86_64, or x86 / x86_64 + ARM apps (slower, but runs ARM-only apps). "
-         "Then pick the Android version - from the oldest available to the newest.", "grp_basic",
-         page="create"),
+         "Type a title and choose x86, x86_64, x86 / x86_64 + ARM apps (slower, but runs ARM-only apps) or "
+         "Standalone ARM (for ARM64 PCs). Then pick the Android version - from the oldest available to the "
+         "newest.", "grp_basic", page="create"),
     Step("Graphics API", "Choose DirectX, OpenGL or Vulkan. APIs your PC can't use are marked as not "
          "supported on your system.", "grp_gfx", page="create"),
     Step("Storage",
          "Choose where the instance files go and, optionally, a folder to share with Android for file "
-         "transfer. Set a disk limit and choose pre-allocated or dynamically growing storage.",
+         "transfer. The disk limit is the size of Android's internal storage - pick pre-allocated or "
+         "dynamically growing.",
          "grp_storage", page="create"),
     Step("Performance",
          "Pick CPU cores (up to your CPU's threads minus 2), RAM (up to half of your RAM), a max FPS from "
          "30 to 240 and optionally V-Sync.", "grp_perf", page="create"),
-    Step("Create", "ODE asks you to confirm because an instance can't be reconfigured later. After you "
-         "press OK it appears in the manager.", "create_buttons", page="create"),
-    Step("The sidebar",
-         "Once Android has finished booting (normal or Recovery), a floating sidebar appears beside the "
-         "emulator window. It controls volume, Home, Back and Tasks, the power button and the shared "
-         "folder.", "sidebar", demo_sidebar=True),
-    Step("Force close", "The last button kills the emulator immediately if it ever hangs.",
-         "sidebar_kill", demo_sidebar=True),
+    Step("Create", "Press Create and the instance appears in the manager. Architecture, Android version and "
+         "disk space can't be changed later - everything else can, with Settings.", "create_buttons",
+         page="create"),
     Step("You're all set!", "You can reopen this guide with the Guide button at the top at any time. "
          "Have fun!", bug=132),
 ]

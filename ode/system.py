@@ -1,8 +1,9 @@
-"""Host-system helpers: CPU/RAM, graphics API detection, free ports, window lookup."""
+"""Host-system helpers: CPU/RAM, graphics API detection, free ports, process control."""
 from __future__ import annotations
 
 import ctypes
 import os
+import platform
 import shutil
 import signal
 import socket
@@ -12,9 +13,6 @@ from pathlib import Path
 
 IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
-
-if IS_WIN:
-    from ctypes import wintypes
 
 
 def hidden_flags() -> int:
@@ -28,6 +26,11 @@ def run_hidden(args, timeout=None, env=None, cwd=None):
 
 
 # --------------------------------------------------------------------- CPU / RAM
+def host_is_arm() -> bool:
+    """True on ARM64 PCs (Apple Silicon, Windows on ARM, aarch64 Linux)."""
+    return platform.machine().lower() in ("arm64", "aarch64")
+
+
 def host_cpus() -> int:
     return os.cpu_count() or 2
 
@@ -138,7 +141,7 @@ def detect_graphics() -> dict:
     return _GFX_CACHE
 
 
-# ----------------------------------------------------------------- ports / windows
+# ------------------------------------------------------------------------- ports
 def _port_free(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
@@ -154,40 +157,6 @@ def free_emulator_port() -> int:
         if _port_free(port) and _port_free(port + 1):
             return port
     return 5554
-
-
-def find_window_rect(title_part: str):
-    """(left, top, right, bottom) in physical pixels of the first visible window whose
-    title contains title_part (Windows only), else None."""
-    if not IS_WIN:
-        return None
-    try:
-        user32 = ctypes.windll.user32
-        enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-        user32.IsWindowVisible.argtypes = [wintypes.HWND]
-        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-        user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-        user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-        found = []
-
-        def callback(hwnd, _lparam):
-            if user32.IsWindowVisible(hwnd):
-                n = user32.GetWindowTextLengthW(hwnd)
-                if n:
-                    buf = ctypes.create_unicode_buffer(n + 1)
-                    user32.GetWindowTextW(hwnd, buf, n + 1)
-                    if title_part in buf.value:
-                        r = wintypes.RECT()
-                        if user32.GetWindowRect(hwnd, ctypes.byref(r)):
-                            found.append((r.left, r.top, r.right, r.bottom))
-                            return False
-            return True
-
-        proc = enum_proc(callback)
-        user32.EnumWindows(proc, 0)
-        return found[0] if found else None
-    except Exception:
-        return None
 
 
 def kill_tree(pid: int) -> None:
