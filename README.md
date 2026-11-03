@@ -7,8 +7,8 @@ For gaming, app testing and everyday use. Free, no ads, no accounts, no bundled 
 
 > **OpenDroidEmu is not related to the OpenDroid Custom ROM project.**
 
-<p><img width="1298" height="962" alt="Screenshot 2026-11-02 191616" src="https://github.com/user-attachments/assets/5221e476-417a-4ddf-b96b-fa645a23a5e5" alt="OpenEmuDroid in the instance creation/configuration screen" width="311" height="231"/></p>
-<p><img width="1297" height="958" alt="Screenshot 2026-11-02 191444" src="https://github.com/user-attachments/assets/34659922-b128-4c02-9ce7-df534c9027a5" alt="OpenEmuDroid running the emulator using Android Kitkat 4.4" width="311" height="231" /></p>
+<p><img width="1298" height="962" alt="Screenshot 2026-11-02 191616" src="https://github.com/user-attachments/assets/5221e476-417a-4ddf-b96b-fa645a23a5e5" width="311" height="231" alt="OpenEmuDroid in the instance creation/configuration screen" /></p>
+<p><img width="1297" height="958" alt="Screenshot 2026-11-02 191444" src="https://github.com/user-attachments/assets/34659922-b128-4c02-9ce7-df534c9027a5" width="311" height="231" alt="OpenEmuDroid running the emulator using Android Kitkat 4.4"  /></p>
 
 ## Features
 
