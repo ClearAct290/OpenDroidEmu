@@ -1,3 +1,4 @@
+
 # OpenDroidEmu (ODE)
 
 An open-source GUI that downloads, configures and launches Google's **stock Android Emulator** (the
@@ -5,7 +6,7 @@ one from Android Studio) - without installing Android Studio, Java or the comman
 For gaming, app testing and everyday use. Free, no ads, no accounts, no bundled software.
 
 > **OpenDroidEmu is not related to the OpenDroid Custom ROM project.**
-
+<img width="432" height="319" alt="Screenshot 2026-11-03 072621" src="https://github.com/user-attachments/assets/9ce695b3-7b09-4700-baa5-86e21fa62bf7" />
 ## Features
 
 - **Quick Setup guide** on first launch (Bugdroid points at every button, including an example instance). Reopen it any time with the **Guide** button. Has a *Don't show me again* checkbox and a
