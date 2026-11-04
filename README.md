@@ -8,8 +8,6 @@ For gaming, app testing and everyday use. Free, no ads, no accounts, no bundled 
 
 [![Watch the video](https://github.com/user-attachments/assets/70bfd6d1-72c9-493a-a7c4-03c0adeef7f7)](https://www.youtube.com/watch?v=g4FygaT-4Oc)
 <br>
-<img width="432" height="319" alt="image" src="https://github.com/user-attachments/assets/a9b680b4-7f1d-4ece-aae2-6e1ed9b11085" />
-
 ## Features
 
 - **Quick Setup guide** on first launch (Bugdroid points at every button, including an example instance). Reopen it any time with the **Guide** button. Has a *Don't show me again* checkbox and a
