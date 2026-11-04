@@ -2,6 +2,46 @@
 
 All notable changes to OpenDroidEmu (ODE). A new entry is added with every update.
 
+## 1.0.3
+
+### Added
+- **Boot mode** setting in an instance's Settings (and on the Create page, under Performance): **Quick Boot** or
+  **Cold Boot**. Quick Boot is the default and resumes the state Android saved when the emulator window was last
+  closed, so Android starts in seconds instead of doing a full startup. Cold Boot starts from scratch every time.
+  It can be changed at any time while the instance is closed. Instances created before 1.0.3 use Quick Boot.
+  The first start of an instance, and any start after a Force close, is still a full boot (nothing was saved yet).
+- New instances are titled **My Android Instance #1**, **#2**, ... automatically (the lowest free number). Type your
+  own title to replace it; leaving the field empty also uses the automatic title.
+- The instance card shows the boot mode next to the other settings.
+
+### Changed
+- The Quick Setup guide describes the boot mode and the automatic titles.
+- The OpenGL check on Linux also tries the usual library names directly, so OpenGL is no longer reported as
+  "not supported" on systems where the library exists but could not be found by name.
+
+### Removed
+- The **shared folder** feature (the *Shared folder* button on instance cards, the shared folder field in Settings
+  and the matching Quick Setup guide step). Copying files through the device's `/sdcard` did not work reliably.
+  Installing apps (Dev Control, or dropping `.apk` files on a card) is unchanged.
+
+## 1.0.2
+
+### Added
+- **Dev Control** button on every instance card, available only while Android is running (greyed out otherwise).
+  It opens a window of ADB tools for that instance, laid out like a menu-driven ADB front end: **Device info**,
+  **Apps**, **Files**, **Screen & input**, **Display**, **Power**, **System & logs**, **Network & ports** and
+  **Shell & advanced**. It uses the ADB that ODE already downloads with the emulator - nothing extra is installed.
+  Every action runs in the background with live output in a console and a **Stop** button.
+- **APK install**: drop `.apk` files on a running instance's card, or anywhere in the Dev Control window, and they are
+  installed in the background through ADB (queued if another command is still running). Options for replacing,
+  granting permissions, downgrades and test-only APKs; a separate action installs split APKs as one app. Common
+  install errors are explained in plain words.
+- Dev Control is also in the card's right-click menu and in the Quick Setup guide.
+
+### Changed
+- The "not related to the OpenDroid Custom ROM project" notice was removed from the window footer. It is still in
+  **About** and in the README.
+
 ## 1.0.1
 
 ### Added
