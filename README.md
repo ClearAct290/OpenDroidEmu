@@ -5,14 +5,7 @@ one from Android Studio) - without installing Android Studio, Java or the comman
 For gaming, app testing and everyday use. Free, no ads, no accounts, no bundled software.
 
 > **OpenDroidEmu is not related to the OpenDroid Custom ROM project.**
-<iframe
-  width="560"
-  height="315"
-  src="https://www.youtube.com/embed/g4FygaT-4Oc"
-  title="YouTube video player"
-  frameborder="0"
-  allowfullscreen>
-</iframe>
+[![Watch the video](https://github.com/user-attachments/assets/70bfd6d1-72c9-493a-a7c4-03c0adeef7f7)](https://www.youtube.com/watch?v=g4FygaT-4Oc)
 <br>
 <img width="432" height="319" alt="image" src="https://github.com/user-attachments/assets/a9b680b4-7f1d-4ece-aae2-6e1ed9b11085" />
 
