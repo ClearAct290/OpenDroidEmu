@@ -6,8 +6,8 @@ For gaming, app testing and everyday use. Free, no ads, no accounts, no bundled 
 
 > **OpenDroidEmu is not related to the OpenDroid Custom ROM project.**
 
-<a href="https://www.youtube.com/watch?v=g4FygaT-4Oc">Watch the video demo on Youtube</a>
-<img width="432" height="319" alt="image" src="https://github.com/user-attachments/assets/c26867c7-490b-4b2c-a537-dd2126703a20" />
+<p><a href="https://www.youtube.com/watch?v=g4FygaT-4Oc">Watch the video demo on Youtube</a></p>
+<p><img width="432" height="319" alt="image" src="https://github.com/user-attachments/assets/c26867c7-490b-4b2c-a537-dd2126703a20" /></p>
 
 ## Features
 
