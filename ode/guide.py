@@ -43,12 +43,12 @@ STEPS = [
          "it isn't a real instance.", "list", demo_card=True),
     Step("Star", "Star an instance to keep it at the top of the list. Starred instances stay first; "
          "newer instances are placed right below them.", "card_star", demo_card=True),
-    Step("Settings", "Change an instance after it was created: its title, display, graphics API, shared "
-         "folder, CPU cores, RAM, max FPS and V-Sync. Only the architecture, the Android version and the "
-         "disk space are fixed. Close the instance first.", "card_edit", demo_card=True),
-    Step("Shared folder", "Shows up when the instance has a shared folder. While Android is running, send "
-         "your folder to Android, or get files (and Android's Downloads) back onto your PC.",
-         "card_shared", demo_card=True),
+    Step("Settings", "Change an instance after it was created: its title, display, graphics API, CPU cores, "
+         "RAM, max FPS, V-Sync, boot mode (Quick Boot or Cold Boot) and SD card size. Only the architecture, the Android "
+         "version and the disk space are fixed. Close the instance first.", "card_edit", demo_card=True),
+    Step("Dev Control", "Available while Android is running: a window of ADB tools for that instance - install "
+         "apps by dropping .apk files on it (or on the card), browse and copy files, take screenshots, record the "
+         "screen, read logs, forward ports and more.", "card_dev", demo_card=True),
     Step("Delete", "Deletes the instance and all of its files, after asking you to confirm. Starred or not - "
          "it can't be undone.", "card_delete", demo_card=True),
     Step("Launch",
@@ -58,21 +58,25 @@ STEPS = [
     Step("Create instance", "Press this to make a new instance. Let's look at the creation page.",
          "create_button"),
     Step("Title and Android version",
-         "Type a title and choose x86, x86_64, x86 / x86_64 + ARM apps (slower, but runs ARM-only apps) or "
+         "New instances are titled \"My Android Instance #1\", \"#2\" and so on - change it if you like. "
+         "Choose x86, x86_64, x86 / x86_64 + ARM apps (slower, but runs ARM-only apps) or "
          "Standalone ARM (for ARM64 PCs). Then pick the Android version - from the oldest available to the "
          "newest.", "grp_basic", page="create"),
     Step("Graphics API", "Choose DirectX, OpenGL or Vulkan. APIs your PC can't use are marked as not "
          "supported on your system.", "grp_gfx", page="create"),
     Step("Storage",
-         "Choose where the instance files go and, optionally, a folder to share with Android for file "
-         "transfer. The disk limit is the size of Android's internal storage - pick pre-allocated or "
-         "dynamically growing.",
+         "Choose where the instance files go. The disk limit is the size of Android's internal storage - "
+         "pick pre-allocated or dynamically growing. The SD card is a separate virtual card (for photos and downloads); "
+         "its file takes its full size on your drive right away.",
          "grp_storage", page="create"),
     Step("Performance",
          "Pick CPU cores (up to your CPU's threads minus 2), RAM (up to half of your RAM), a max FPS from "
-         "30 to 240 and optionally V-Sync.", "grp_perf", page="create"),
+         "30 to 240 and optionally V-Sync. Boot mode: Quick Boot (the default) resumes the state Android saved "
+         "when you closed the emulator window, so it starts in seconds - the very first start, and any start "
+         "after a Force close, is still a full boot. Cold Boot starts Android from scratch every time. You can "
+         "switch between them later with Settings.", "grp_perf", page="create"),
     Step("Create", "Press Create and the instance appears in the manager. Architecture, Android version and "
-         "disk space can't be changed later - everything else can, with Settings.", "create_buttons",
+         "disk space can't be changed later - everything else can, with Settings. The SD card size can be changed too, but that replaces the card with an empty one.", "create_buttons",
          page="create"),
     Step("You're all set!", "You can reopen this guide with the Guide button at the top at any time. "
          "Have fun!", bug=132),

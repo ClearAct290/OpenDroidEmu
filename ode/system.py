@@ -112,7 +112,16 @@ def _check_gl():
         elif not IS_MAC:
             import ctypes.util
             if not ctypes.util.find_library("GL"):
-                return False, "libGL was not found."
+                # find_library() depends on ldconfig and misses libraries on many setups (NVIDIA drivers,
+                # Flatpak, minimal installs) - try the usual file names directly before giving up.
+                for name in ("libGL.so.1", "libOpenGL.so.0", "libEGL.so.1"):
+                    try:
+                        ctypes.CDLL(name)
+                        break
+                    except OSError:
+                        continue
+                else:
+                    return False, "libGL was not found."
         return True, "OpenGL is available."
     except Exception as exc:
         return False, f"OpenGL could not be loaded ({exc})."
@@ -170,5 +179,16 @@ def kill_tree(pid: int) -> None:
                 os.killpg(os.getpgid(pid), signal.SIGKILL)
             except Exception:
                 os.kill(pid, signal.SIGKILL)
+    except Exception:
+        pass
+
+
+def kill_tree_by_name(name: str) -> None:
+    """Kill every process with this executable name (used for a stray adb that ignores `adb kill-server`)."""
+    try:
+        if IS_WIN:
+            subprocess.run(["taskkill", "/F", "/T", "/IM", name], capture_output=True, creationflags=hidden_flags())
+        else:
+            subprocess.run(["pkill", "-9", "-x", name], capture_output=True)
     except Exception:
         pass

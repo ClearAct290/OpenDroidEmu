@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+build/
+dist/
+core/
+data/
+instances/
+release/
+tools/
+publish_to_github.bat

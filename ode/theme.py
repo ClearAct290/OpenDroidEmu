@@ -104,6 +104,12 @@ QPushButton#primary { background: @accent@; color: @accent_text@; border: 1px so
 QPushButton#primary:hover { background: @accent_hover@; border-color: @accent_hover@; }
 QPushButton#primary:pressed { background: @accent@; }
 QPushButton#primary:disabled { background: @panel2@; color: @disabled@; border: 1px solid @border@; }
+QFrame#dropzone { background: @panel2@; border: 2px dashed @border@; border-radius: 10px; }
+QFrame#dropzone QLabel { background: transparent; }
+QListWidget { background: @input@; color: @text@; border: 1px solid @border@; border-radius: 6px; outline: 0; }
+QListWidget::item { padding: 5px 8px; border-radius: 4px; }
+QListWidget::item:hover:!selected { background: @hover@; }
+QListWidget::item:selected { background: @accent@; color: @select_text@; }
 QPushButton#dangerBtn { color: @danger@; }
 QPushButton#dangerBtn:disabled { color: @disabled@; }
 

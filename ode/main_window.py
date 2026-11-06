@@ -6,9 +6,10 @@ from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                              QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
-from . import (APP_NAME, APP_SHORT, APP_VERSION, DISCLAIMER, GITHUB_URL, instances, paths, sdk, system, theme,
-               updater)
+from . import (APP_NAME, APP_SHORT, APP_VERSION, DISCLAIMER, GITHUB_URL, adbctl, instances, paths, sdcard, sdk,
+               system, theme, updater)
 from .create_page import CreatePage
+from .devcontrol import DevControl
 from .download import run_download
 from .guide import GuideOverlay, Step
 from .instances import Store
@@ -62,6 +63,7 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.store = Store()
         self.sessions: dict = {}
+        self.devwins: dict = {}             # inst.id -> its Dev Control window
         self._reached: set = set()          # instance ids that finished booting at least once
         self.core_info = None
         self.update_available = False
@@ -134,12 +136,9 @@ class MainWindow(QMainWindow):
         foot.setObjectName("footer")
         fl = QHBoxLayout(foot)
         fl.setContentsMargins(16, 5, 16, 5)
-        d = QLabel(DISCLAIMER)
-        d.setObjectName("muted")
         free = QLabel("Free \u2022 open source \u2022 no ads")
         free.setObjectName("muted")
-        d.setMinimumWidth(10)
-        fl.addWidget(d, 1)
+        fl.addStretch(1)
         fl.addWidget(free, 0)
         root.addWidget(foot)
 
@@ -150,7 +149,8 @@ class MainWindow(QMainWindow):
         self.manager.star.connect(self.on_star)
         self.manager.delete.connect(self.on_delete)
         self.manager.kill.connect(self.on_kill)
-        self.manager.sync.connect(self.on_sync)
+        self.manager.devcontrol.connect(self.open_devcontrol)
+        self.manager.apks.connect(self.on_apks)
         self.create.created.connect(self.on_created)
         self.create.saved.connect(self.on_created)
         self.create.cancelled.connect(lambda: self.stack.setCurrentWidget(self.manager))
@@ -160,6 +160,7 @@ class MainWindow(QMainWindow):
 
     # ================================================================== startup
     def start(self):
+        run_task(adbctl.kill_if_idle, lambda _r, _e: None)       # a stray adb from a crashed run would break launches
         if self.settings.get("show_guide", True):
             self.open_guide(True)
         else:
@@ -286,6 +287,7 @@ class MainWindow(QMainWindow):
         jobs = [sdk.job_for(info.emulator, "Android Emulator")]
         pt_rev = sdk.installed_revision("platform-tools")
         if not sdk.adb_exe().exists() or (pt_rev and sdk.rev_newer(info.platform_tools.revision, pt_rev)):
+            adbctl.kill_if_idle()                       # a running adb.exe would block replacing platform-tools
             jobs.append(sdk.job_for(info.platform_tools, "Platform tools (ADB)"))
         ok = run_download(self, "Updating the emulator core" if update else "Downloading the emulator core", jobs,
                           "The emulator core was installed successfully. Everything is ready to use now."
@@ -368,17 +370,29 @@ class MainWindow(QMainWindow):
         if r == QMessageBox.Yes:
             s.kill()
 
-    def on_sync(self, inst, action: str):
+    def open_devcontrol(self, inst, page: str = None):
+        """The Dev Control window of a running instance (created on first use)."""
         s = self.sessions.get(inst.id)
         if s is None or s.current != "booted":
-            QMessageBox.information(self, "Shared folder", "Start the instance and wait until Android has "
-                                    "booted - files are copied while it is running.")
-            return
-        {"send": s.push_shared, "get": s.pull_shared, "downloads": s.pull_downloads}[action]()
+            QMessageBox.information(self, "Dev Control", "Start the instance and wait until Android has booted - "
+                                    "Dev Control talks to Android while it is running.")
+            return None
+        win = self.devwins.get(inst.id)
+        if win is None:
+            win = DevControl(inst, s.serial)
+            self.devwins[inst.id] = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        if page:
+            win.show_page(page)
+        return win
 
-    @pyqtSlot(bool, str)
-    def _session_message(self, ok: bool, text: str):
-        (QMessageBox.information if ok else QMessageBox.warning)(self, "Shared folder", text)
+    def on_apks(self, inst, files: list):
+        """.apk files dropped on a running instance's card: install them through Dev Control."""
+        win = self.open_devcontrol(inst, "Apps")
+        if win is not None:
+            win.install_apks(files)
 
     # ================================================================== launching
     def on_launch(self, inst, recovery: bool):
@@ -453,9 +467,22 @@ class MainWindow(QMainWindow):
         self._start_session(inst, recovery)
 
     def _start_session(self, inst, recovery: bool):
+        if sdcard.needs_prepare(inst):                              # (re)create the virtual SD card first
+            self.manager.set_state(inst, "checking", "Preparing the SD card...")
+            run_task(lambda: sdcard.prepare(inst), lambda _res, err: self._sd_ready(inst, recovery, err))
+            return
+        self._launch_session(inst, recovery)
+
+    def _sd_ready(self, inst, recovery: bool, err):
+        if err:
+            self.manager.set_state(inst, "idle")
+            QMessageBox.warning(self, "SD card", f"The SD card couldn't be prepared:\n\n{err}")
+            return
+        self._launch_session(inst, recovery)
+
+    def _launch_session(self, inst, recovery: bool):
         s = Session(inst, recovery)
         s.state.connect(self._session_state)
-        s.message.connect(self._session_message)
         try:
             s.start()
         except Exception as exc:                                   # noqa: BLE001
@@ -480,6 +507,9 @@ class MainWindow(QMainWindow):
             self.manager.set_state(inst, st)
         elif st == "stopped":
             self.sessions.pop(inst.id, None)
+            dev = self.devwins.pop(inst.id, None)
+            if dev is not None:
+                dev.shutdown()
             self.manager.set_state(inst, "idle")
             if inst.id not in self._reached and s.proc is not None and s.proc.returncode not in (None, 0):
                 why = instances.diagnose_log(inst)
@@ -532,7 +562,7 @@ class MainWindow(QMainWindow):
         return {
             "core": self.btn_core, "guide": self.btn_guide, "theme": self.btn_theme, "about": self.btn_about,
             "list": m.scroll, "card_star": m.demo_card.btn_star, "card_edit": m.demo_card.btn_edit,
-            "card_shared": m.demo_card.btn_shared, "card_delete": m.demo_card.btn_delete,
+            "card_dev": m.demo_card.btn_dev, "card_delete": m.demo_card.btn_delete,
             "card_launch": m.demo_card.btn_launch, "create_button": m.btn_create,
             "grp_basic": c.grp_basic, "grp_gfx": c.grp_gfx, "grp_storage": c.grp_storage,
             "grp_perf": c.grp_perf, "create_buttons": c.btn_create,
@@ -566,4 +596,8 @@ class MainWindow(QMainWindow):
                 return
             for s in list(self.sessions.values()):
                 s.kill()
+        for dev in list(self.devwins.values()):
+            dev.shutdown()
+        self.devwins.clear()
+        adbctl.kill_now()                                 # nothing runs any more: don't leave adb behind
         e.accept()

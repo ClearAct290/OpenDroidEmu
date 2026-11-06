@@ -1,4 +1,4 @@
-"""Instance manager page: instance cards (star / launch / settings / delete / shared folder)."""
+"""Instance manager page: instance cards (star / launch / settings / delete / Dev Control)."""
 from __future__ import annotations
 
 import time
@@ -8,7 +8,7 @@ from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QProgressBar, QPushButton, QScrollArea,
                              QToolButton, QVBoxLayout, QWidget)
 
-from . import sdk, theme
+from . import sdcard, sdk, theme
 from .instances import ARCH_LABELS, GFX_LABELS, Instance
 from .util import asset_pixmap
 
@@ -17,7 +17,7 @@ def demo_instance() -> Instance:
     return Instance(id="demo", title="Example - Android 11 for Games", avd_id="Example", arch="x86_64+arm",
                     api=30, api_label="Android 11 (API 30)", flavor="google_apis",
                     image_pkg="system-images;android-30;google_apis;x86_64", gfx="dx", install_dir="",
-                    shared_dir="Example shared folder", disk_mb=8192, alloc="dynamic", cores=4, ram_mb=4096,
+                    disk_mb=8192, alloc="dynamic", cores=4, ram_mb=4096,
                     fps=120, vsync=True, display="phone", created=time.time(), starred=True, star_ts=1.0)
 
 
@@ -43,7 +43,8 @@ class InstanceCard(QFrame):
     star = pyqtSignal(object)
     delete = pyqtSignal(object)
     kill = pyqtSignal(object)
-    sync = pyqtSignal(object, str)          # inst, "send" | "get" | "downloads"
+    devcontrol = pyqtSignal(object)
+    apks = pyqtSignal(object, list)         # inst, .apk files dropped on the card
 
     def __init__(self, inst: Instance, demo: bool = False, parent=None):
         super().__init__(parent)
@@ -53,6 +54,7 @@ class InstanceCard(QFrame):
         self.core_ok = True
         self.setObjectName("card")
         self.setProperty("demo", "true" if demo else "false")
+        self.setAcceptDrops(True)                      # drop .apk files on a running instance to install them
 
         icon = QLabel()
         icon.setPixmap(asset_pixmap("icon.png", 56))
@@ -63,7 +65,9 @@ class InstanceCard(QFrame):
         flavor = sdk.FLAVORS.get(inst.flavor, (inst.flavor,))[0]
         self.lb_sub = QLabel(f"{inst.api_label}  \u2022  {flavor}  \u2022  {ARCH_LABELS.get(inst.arch, inst.arch)}")
         extra = f"{GFX_LABELS.get(inst.gfx, inst.gfx)}  \u2022  {inst.cores} cores  \u2022  {inst.ram_mb:,} MB RAM" \
-                f"  \u2022  {inst.fps} FPS" + ("  \u2022  V-Sync" if inst.vsync else "")
+                f"  \u2022  {inst.fps} FPS" + ("  \u2022  V-Sync" if inst.vsync else "") \
+                + ("  \u2022  Cold Boot" if inst.boot == "cold" else "  \u2022  Quick Boot") \
+                + (f"  \u2022  {sdcard.label_for(inst.sd_mb)} SD" if inst.sd_mb > 0 else "  \u2022  No SD card")
         self.lb_detail = QLabel(extra)
         self.lb_sub.setObjectName("muted")
         self.lb_detail.setObjectName("muted")
@@ -79,8 +83,8 @@ class InstanceCard(QFrame):
         self.btn_star.setStyleSheet("QToolButton { font-size: 18pt; padding: 0 4px; }")
         self.btn_star.setCursor(Qt.PointingHandCursor)
         self.btn_star.clicked.connect(lambda: None if self.demo else self.star.emit(self.inst))
-        self.btn_shared = QPushButton("Shared folder  \u25BE")
-        self.btn_shared.clicked.connect(self._shared_menu)
+        self.btn_dev = QPushButton("Dev Control")
+        self.btn_dev.clicked.connect(lambda: None if self.demo else self.devcontrol.emit(self.inst))
         self.btn_edit = QPushButton("Settings")
         self.btn_edit.clicked.connect(lambda: None if self.demo else self.edit.emit(self.inst))
         self.btn_delete = QPushButton("Delete")
@@ -102,10 +106,10 @@ class InstanceCard(QFrame):
         for lab in (self.lb_title, self.lb_sub, self.lb_detail):
             lab.setWordWrap(True)                        # long text wraps instead of widening the card
             lab.setMinimumWidth(40)
-        top = QHBoxLayout()                              # shared folder + star on top, main buttons below
+        top = QHBoxLayout()                              # Dev Control + star on top, main buttons below
         top.setSpacing(8)
         top.addStretch(1)
-        top.addWidget(self.btn_shared)
+        top.addWidget(self.btn_dev)
         top.addWidget(self.btn_star)
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
@@ -169,20 +173,30 @@ class InstanceCard(QFrame):
         self.btn_delete.setEnabled(self.demo or idle)
         self.btn_delete.setToolTip("Delete this instance and all of its files" if (self.demo or idle)
                                    else "Close the instance before deleting it.")
-        self.btn_shared.setVisible(bool(inst.shared_dir))
-        can_sync = self.demo or self.state == "booted"
-        self.btn_shared.setEnabled(can_sync)
-        self.btn_shared.setToolTip("Copy files between your shared folder and Android" if can_sync
-                                   else "Available while Android is running.")
+        can_dev = self.demo or self.state == "booted"
+        self.btn_dev.setEnabled(can_dev)
+        self.btn_dev.setToolTip("ADB tools for this instance: install APKs, browse files, logs, screenshots...\n"
+                                "Tip: you can also drop .apk files on this card to install them." if can_dev
+                                else "Available while Android is running.")
 
-    def _shared_menu(self):
-        if self.demo:
-            return
-        menu = QMenu(self)
-        menu.addAction("Send the shared folder to Android", lambda _=False: self.sync.emit(self.inst, "send"))
-        menu.addAction("Get files from Android (ODE_Shared)", lambda _=False: self.sync.emit(self.inst, "get"))
-        menu.addAction("Get Android's Downloads", lambda _=False: self.sync.emit(self.inst, "downloads"))
-        menu.exec_(self.btn_shared.mapToGlobal(self.btn_shared.rect().bottomLeft()))
+    # ------------------------------------------------------------------ drop .apk files to install
+    @staticmethod
+    def _dropped_apks(mime) -> list:
+        return [u.toLocalFile() for u in mime.urls() if u.isLocalFile() and u.toLocalFile().lower().endswith(".apk")]
+
+    def dragEnterEvent(self, e):
+        if not self.demo and self.state == "booted" and self._dropped_apks(e.mimeData()):
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dropEvent(self, e):
+        files = self._dropped_apks(e.mimeData())
+        if files and self.state == "booted":
+            e.acceptProposedAction()
+            self.apks.emit(self.inst, files)
+        else:
+            e.ignore()
 
     # ------------------------------------------------------------------ context menu
     def contextMenuEvent(self, e):
@@ -192,6 +206,8 @@ class InstanceCard(QFrame):
         menu = QMenu(self)
         a_rec = menu.addAction("Launch to Recovery mode")
         a_rec.setEnabled(self.core_ok and idle)
+        a_dev = menu.addAction("Dev Control")
+        a_dev.setEnabled(self.state == "booted")
         a_set = menu.addAction("Settings")
         a_set.setEnabled(idle)
         a_dir = menu.addAction("Open instance folder")
@@ -204,6 +220,8 @@ class InstanceCard(QFrame):
         act = menu.exec_(e.globalPos())
         if act == a_rec:
             self.launch.emit(self.inst, True)
+        elif act == a_dev:
+            self.devcontrol.emit(self.inst)
         elif act == a_set:
             self.edit.emit(self.inst)
         elif act == a_dir:
@@ -221,7 +239,8 @@ class ManagerPage(QWidget):
     star = pyqtSignal(object)
     delete = pyqtSignal(object)
     kill = pyqtSignal(object)
-    sync = pyqtSignal(object, str)
+    devcontrol = pyqtSignal(object)
+    apks = pyqtSignal(object, list)
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -299,7 +318,8 @@ class ManagerPage(QWidget):
             card.star.connect(self.star)
             card.delete.connect(self.delete)
             card.kill.connect(self.kill)
-            card.sync.connect(self.sync)
+            card.devcontrol.connect(self.devcontrol)
+            card.apks.connect(self.apks)
             card.set_core_ok(self.core_ok)
             st = self.states.get(inst.id)
             if st:

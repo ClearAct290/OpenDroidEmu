@@ -9,11 +9,12 @@ from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
-                             QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSpinBox,
-                             QVBoxLayout, QWidget)
+                             QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
+                             QSpinBox, QVBoxLayout, QWidget)
 
-from . import instances, paths, sdk, system
-from .instances import ARCH_LABELS, ARM_MIN_API, DISPLAYS, GFX_LABELS, ALLOC_LABELS, Instance
+from . import instances, paths, sdcard, sdk, system
+from .instances import (ALLOC_LABELS, ARCH_LABELS, ARM_MIN_API, BOOT_LABELS, DEFAULT_BOOT, DISPLAYS, GFX_LABELS,
+                        Instance)
 from .util import run_task
 
 CREATE_SUB = ("Pick what you need. " + instances.LOCKED_NOTE.replace(" after an instance is created", " afterwards")
@@ -66,7 +67,7 @@ class CreatePage(QWidget):
         # ---- Basics
         self.grp_basic = QGroupBox("Basics")
         self.ed_title = QLineEdit()
-        self.ed_title.setPlaceholderText("e.g. Android 11 - Games")
+        self.ed_title.setPlaceholderText(instances.DEFAULT_TITLE + "1")
         self.ed_title.setMaxLength(60)
         self.cb_arch = QComboBox()
         for key, label in ARCH_LABELS.items():
@@ -112,13 +113,6 @@ class CreatePage(QWidget):
         self.ed_install = QLineEdit(str(paths.INSTANCES_DIR))
         self.ed_install.setMinimumWidth(60)
         self.btn_install = QPushButton("Browse...")
-        self.ed_shared = QLineEdit()
-        self.ed_shared.setPlaceholderText("Optional - exchange files with Android")
-        self.ed_shared.setMinimumWidth(60)
-        self.btn_shared = QPushButton("Browse...")
-        self.btn_shared_clear = QPushButton("\u2715")
-        self.btn_shared_clear.setToolTip("Clear the shared folder")
-        self.btn_shared_clear.setFixedWidth(34)
         self.sp_disk = QSpinBox()
         self.sp_disk.setRange(2048, 1048576)
         self.sp_disk.setSingleStep(1024)
@@ -129,15 +123,25 @@ class CreatePage(QWidget):
         self.cb_alloc = QComboBox()
         for key, label in ALLOC_LABELS.items():
             self.cb_alloc.addItem(label, key)
+        self.sp_sd = QSpinBox()
+        self.sp_sd.setRange(0, sdcard.MAX_SD_MB)
+        self.sp_sd.setSingleStep(512)
+        self.sp_sd.setSuffix(" MB")
+        self.sp_sd.setSpecialValueText("No SD card")
+        self.sp_sd.setValue(sdcard.DEFAULT_SD_MB)
+        self.sp_sd.setGroupSeparatorShown(True)
+        self.sp_sd.setToolTip("The virtual SD card (64 MB to 100 GB). Apps like the camera and file managers need one "
+                              "to save photos and downloads.\nChanging it later replaces the card with an empty one "
+                              "of the new size.\nThe card file takes its full size on your drive right away.")
         self.lb_free = QLabel("")
         self.lb_free.setObjectName("muted")
         self.lb_free.setWordWrap(True)
         s = QFormLayout(self.grp_storage)
         s.setLabelAlignment(Qt.AlignRight)
         s.addRow("Install to", _row(self.ed_install, self.btn_install))
-        s.addRow("Shared folder", _row(self.ed_shared, self.btn_shared, self.btn_shared_clear))
         s.addRow("Disk limit", self.sp_disk)
         s.addRow("Allocation", self.cb_alloc)
+        s.addRow("SD card", self.sp_sd)
         s.addRow(self.lb_free)
 
         # ---- Performance
@@ -160,6 +164,13 @@ class CreatePage(QWidget):
         self.sp_fps.setValue(60)
         self.sp_fps.setSuffix(" FPS")
         self.ck_vsync = QCheckBox("Enable V-Sync")
+        self.cb_boot = QComboBox()
+        for key, label in BOOT_LABELS.items():
+            self.cb_boot.addItem(label, key)
+        self.cb_boot.setToolTip(
+            "Quick Boot saves Android's state when you close the emulator window and resumes it next time.\n"
+            "The first start (and any start after a Force close) is still a full boot.\n"
+            "Cold Boot starts Android from scratch every time. You can change this at any time.")
         p = QFormLayout(self.grp_perf)
         p.setLabelAlignment(Qt.AlignRight)
         p.addRow("CPU cores", _row(self.sp_cores, self.lb_cores))
@@ -167,6 +178,7 @@ class CreatePage(QWidget):
         p.addRow(self.lb_ram)
         p.addRow("Max FPS", self.sp_fps)
         p.addRow("", self.ck_vsync)
+        p.addRow("Boot mode", self.cb_boot)
 
         # ---- buttons
         self.btn_cancel = QPushButton("Cancel")
@@ -219,10 +231,9 @@ class CreatePage(QWidget):
         self.cb_gfx.currentIndexChanged.connect(self._gfx_changed)
         self.cb_display.activated.connect(lambda _i: setattr(self, "_display_touched", True))
         self.btn_install.clicked.connect(lambda: self._browse(self.ed_install))
-        self.btn_shared.clicked.connect(lambda: self._browse(self.ed_shared))
-        self.btn_shared_clear.clicked.connect(self.ed_shared.clear)
         self.ed_install.textChanged.connect(self._update_free)
         self.sp_disk.valueChanged.connect(self._update_free)
+        self.sp_sd.valueChanged.connect(self._update_free)
         self.cb_alloc.currentIndexChanged.connect(self._update_free)
         self.btn_cancel.clicked.connect(self.cancelled.emit)
         self.btn_create.clicked.connect(self._on_save)
@@ -233,9 +244,8 @@ class CreatePage(QWidget):
     def reset(self):
         """A fresh 'create' form each time the page is opened."""
         self._set_editing(None)
-        self.ed_title.clear()
+        self.ed_title.setText(instances.next_default_title(i.title for i in self.store.items))
         self.lb_status.setText("")
-        self.ed_shared.clear()
         self.ed_install.setText(str(paths.INSTANCES_DIR))
         self._display_touched = False
         self._apply_defaults()
@@ -273,7 +283,6 @@ class CreatePage(QWidget):
         if gfx_i >= 0:
             self.cb_gfx.setCurrentIndex(gfx_i)
         self._gfx_changed()
-        self.ed_shared.setText(inst.shared_dir)
         self.ed_install.setText(inst.install_dir)
         movable = not instances.has_disk_data(inst)
         for w in (self.ed_install, self.btn_install):
@@ -284,11 +293,13 @@ class CreatePage(QWidget):
         self.sp_disk.setRange(min(2048, inst.disk_mb), max(1048576, inst.disk_mb))
         self.sp_disk.setValue(inst.disk_mb)
         self.cb_alloc.setCurrentIndex(max(0, self.cb_alloc.findData(inst.alloc)))
+        self.sp_sd.setValue(inst.sd_mb)
         self.sp_cores.setRange(1, max(system.max_cores(), inst.cores))
         self.sp_cores.setValue(inst.cores)
         self._update_ram_limits(inst.api, keep=inst.ram_mb)
         self.sp_fps.setValue(inst.fps)
         self.ck_vsync.setChecked(inst.vsync)
+        self.cb_boot.setCurrentIndex(max(0, self.cb_boot.findData(inst.boot)))
         self.btn_create.setEnabled(True)
         self._update_free()
 
@@ -321,10 +332,12 @@ class CreatePage(QWidget):
             w.blockSignals(False)
         self.sp_disk.setRange(2048, 1048576)
         self.sp_disk.setValue(8192)
+        self.sp_sd.setValue(sdcard.DEFAULT_SD_MB)
         self.sp_cores.setRange(1, system.max_cores())
         self.sp_cores.setValue(min(4, system.max_cores()))
         self.sp_fps.setValue(60)
         self.ck_vsync.setChecked(False)
+        self.cb_boot.setCurrentIndex(max(0, self.cb_boot.findData(DEFAULT_BOOT)))
         self._ram_inited = False
         self._fill_graphics()
 
@@ -507,13 +520,16 @@ class CreatePage(QWidget):
         else:
             need = self.sp_disk.value()
             prealloc = self.cb_alloc.currentData() == "prealloc"
-            bad = prealloc and free < need + 512
+            reserved = (need if prealloc else 0) + self.sp_sd.value()      # space taken right away
+            bad = reserved > 0 and free < reserved + 512
             if prealloc:
                 txt += " Pre-allocated reserves the full disk limit right away."
             else:
                 txt += " Dynamic only uses the space Android actually needs, up to the limit."
+            if self.sp_sd.value() > 0:
+                txt += " The SD card file takes its full size right away."
             if bad:
-                txt += " Not enough room for pre-allocation!"
+                txt += " Not enough room for pre-allocation and the SD card!"
         self.lb_free.setObjectName("danger" if bad else "muted")
         self.lb_free.setText(txt)
         self.lb_free.style().unpolish(self.lb_free)
@@ -526,19 +542,18 @@ class CreatePage(QWidget):
     def _on_save(self):
         self.lb_status.setText("")
         title = self.ed_title.text().strip()
+        if not title:                                  # left empty: use the automatic title
+            title = instances.next_default_title(i.title for i in self.store.items
+                                                 if i is not self.edit_inst)
+            self.ed_title.setText(title)
         gfx = self.cb_gfx.currentData()
-        if not title:
-            return self._fail("Please type a title for the instance.")
         if not system.detect_graphics()[gfx][0]:
             return self._fail(f"The {GFX_LABELS[gfx]} API is not supported on your system - pick another one.")
-        shared = self.ed_shared.text().strip()
-        if shared and not Path(shared).is_dir():
-            return self._fail("The shared folder doesn't exist.")
         if self.edit_inst is not None:
-            return self._save_edit(title, gfx, shared)
-        return self._save_new(title, gfx, shared)
+            return self._save_edit(title, gfx)
+        return self._save_new(title, gfx)
 
-    def _save_new(self, title: str, gfx: str, shared: str):
+    def _save_new(self, title: str, gfx: str):
         pkg = self.current_pkg()
         if pkg is None:
             return self._fail("Please pick an Android version.")
@@ -551,10 +566,15 @@ class CreatePage(QWidget):
             return self._fail(f"Can't use that install location: {exc}")
         free = system.free_mb(install)
         disk = self.sp_disk.value()
-        if self.cb_alloc.currentData() == "prealloc" and free < disk + 512:
-            return self._fail("Not enough free disk space to pre-allocate that much. Lower the disk limit "
-                              "or use dynamic expansion.")
-        if free < 1536:
+        sd = self.sp_sd.value()
+        if not sdcard.valid_size(sd):
+            return self._fail(f"The SD card must be between {sdcard.MIN_SD_MB} MB and {sdcard.MAX_SD_MB:,} MB "
+                              "(or \"No SD card\").")
+        prealloc = self.cb_alloc.currentData() == "prealloc"
+        if prealloc and free < disk + sd + 512:
+            return self._fail("Not enough free disk space to pre-allocate that much (including the SD card). "
+                              "Lower the disk limit or the SD card, or use dynamic expansion.")
+        if free < 1536 + sd:
             return self._fail("The install drive has less than 1.5 GB free.")
 
         taken = [i.avd_id for i in self.store.items]
@@ -566,9 +586,10 @@ class CreatePage(QWidget):
             id=uuid.uuid4().hex[:12], title=title, avd_id=instances.make_avd_id(title, taken),
             arch=self.cb_arch.currentData(), api=pkg.api, api_label=pkg.api_label,
             flavor=self.cb_flavor.currentData(), image_pkg=pkg.path, gfx=gfx,
-            install_dir=install, shared_dir=shared, disk_mb=disk, alloc=self.cb_alloc.currentData(),
+            install_dir=install, disk_mb=disk, alloc=self.cb_alloc.currentData(),
             cores=self.sp_cores.value(), ram_mb=self.sp_ram.value(), fps=self.sp_fps.value(),
-            vsync=self.ck_vsync.isChecked(), display=self.cb_display.currentData(), created=time.time())
+            vsync=self.ck_vsync.isChecked(), display=self.cb_display.currentData(), created=time.time(),
+            boot=self.cb_boot.currentData(), sd_mb=sd)
         try:
             instances.write_avd(inst)
         except OSError as exc:
@@ -576,10 +597,31 @@ class CreatePage(QWidget):
         self.store.add(inst)
         self.created.emit(inst)
 
-    def _save_edit(self, title: str, gfx: str, shared: str):
+    def _save_edit(self, title: str, gfx: str):
         inst = self.edit_inst
         install = self.ed_install.text().strip()
         move = False
+        sd = self.sp_sd.value()
+        if not sdcard.valid_size(sd):
+            return self._fail(f"The SD card must be between {sdcard.MIN_SD_MB} MB and {sdcard.MAX_SD_MB:,} MB "
+                              "(or \"No SD card\").")
+        sd_changed = sd != inst.sd_mb
+        if sd_changed and instances.has_disk_data(inst):
+            if sd > 0:
+                free = system.free_mb(inst.avd_dir)
+                if free < sd + 256:
+                    return self._fail(f"Not enough free disk space for a {sdcard.label_for(sd)} SD card "
+                                      f"({free:,} MB free).")
+            r = QMessageBox.question(
+                self, "Replace the SD card?",
+                ("The SD card will be replaced by an empty " + sdcard.label_for(sd) + " card" if sd > 0
+                 else "The SD card will be removed") +
+                ". Everything stored on the current SD card (photos, downloads, ...) is erased.\n\n"
+                "Android's own storage and your apps are not touched. The saved Quick Boot state is discarded, so the "
+                "next start is a full boot.\n\nContinue?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if r != QMessageBox.Yes:
+                return self._fail("Nothing was saved.")
         if instances.has_disk_data(inst):
             install = inst.install_dir                  # locked once the emulator has created disk images
         else:
@@ -598,11 +640,13 @@ class CreatePage(QWidget):
                     return self._fail("The new install drive doesn't have enough free space.")
                 move = True
 
-        keep = (inst.title, inst.gfx, inst.display, inst.shared_dir, inst.cores, inst.ram_mb, inst.fps,
-                inst.vsync, inst.install_dir)
-        inst.title, inst.gfx, inst.display, inst.shared_dir = title, gfx, self.cb_display.currentData(), shared
+        keep = (inst.title, inst.gfx, inst.display, inst.cores, inst.ram_mb, inst.fps,
+                inst.vsync, inst.boot, inst.install_dir, inst.sd_mb)
+        inst.title, inst.gfx, inst.display = title, gfx, self.cb_display.currentData()
         inst.cores, inst.ram_mb, inst.fps = self.sp_cores.value(), self.sp_ram.value(), self.sp_fps.value()
         inst.vsync = self.ck_vsync.isChecked()
+        inst.boot = self.cb_boot.currentData()
+        inst.sd_mb = sd
         try:
             if move:
                 instances.relocate_unused(inst, install)
@@ -610,7 +654,9 @@ class CreatePage(QWidget):
                 instances.write_avd(inst)
             self.store.save()
         except OSError as exc:
-            (inst.title, inst.gfx, inst.display, inst.shared_dir, inst.cores, inst.ram_mb, inst.fps,
-             inst.vsync, inst.install_dir) = keep
+            (inst.title, inst.gfx, inst.display, inst.cores, inst.ram_mb, inst.fps,
+             inst.vsync, inst.boot, inst.install_dir, inst.sd_mb) = keep
             return self._fail(f"Couldn't save the changes: {exc}")
+        if sd_changed:
+            sdcard.remove_card_files(inst.avd_dir)      # the new card is created at the next start
         self.saved.emit(inst)

@@ -5,9 +5,8 @@ one from Android Studio) - without installing Android Studio, Java or the comman
 For gaming, app testing and everyday use. Free, no ads, no accounts, no bundled software.
 
 > **OpenDroidEmu is not related to the OpenDroid Custom ROM project.**
+<img width="432" height="319" alt="image" src="https://github.com/user-attachments/assets/c26867c7-490b-4b2c-a537-dd2126703a20" />
 
-[![Watch the video](https://github.com/user-attachments/assets/70bfd6d1-72c9-493a-a7c4-03c0adeef7f7)](https://www.youtube.com/watch?v=g4FygaT-4Oc)
-<br>
 ## Features
 
 - **Quick Setup guide** on first launch (Bugdroid points at every button, including an example instance). Reopen it any time with the **Guide** button. Has a *Don't show me again* checkbox and a
@@ -20,10 +19,10 @@ For gaming, app testing and everyday use. Free, no ads, no accounts, no bundled 
 - **Create instance**: title; x86 / x86_64 / x86 + ARM apps / x86_64 + ARM apps / **Standalone ARM (arm64)**; Android
   version (oldest to newest available); graphics API (DirectX / OpenGL / Vulkan - unsupported ones are marked);
   install folder; disk limit with *dynamic* or *pre-allocated* storage; CPU cores (host
-  threads - 2); RAM (half of the host RAM); max FPS 30-240; V-Sync; **boot mode** (Quick Boot or Cold Boot).
+  threads - 2); RAM (half of the host RAM); max FPS 30-240; V-Sync; **boot mode** (Quick Boot or Cold Boot); **virtual SD card** size (64 MB - 100 GB, default 2 GB).
   New instances are titled *My Android Instance #1*, *#2*, ... unless you type your own title.
-- **Edit instance**: press **Settings** on a card. Title, display, graphics API, CPU cores, RAM, max FPS, V-Sync
-  and boot mode can be changed any time the instance is closed. **Architecture, Android version (with the system image
+- **Edit instance**: press **Settings** on a card. Title, display, graphics API, CPU cores, RAM, max FPS, V-Sync,
+  boot mode and SD card size can be changed any time the instance is closed (a new SD card size replaces the card with an empty one). **Architecture, Android version (with the system image
   type) and disk space are fixed** once the instance is created. The install folder can be changed until the
   instance has been started for the first time.
 - **First launch of an instance** asks before downloading its system image (size shown in MB).
@@ -83,7 +82,7 @@ If the program folder is read-only (e.g. *Program Files*), ODE falls back to `%L
   state was saved. *Cold Boot* starts Android from scratch every time. Change it any time in the instance's
   **Settings** while the instance is closed. To move files in and out of Android use **Dev Control**.
 - **Updating ODE**: `version.json` in the root of the repository holds the current version number, e.g.
-  `{"version": "1.0.3"}`. Bump it (and `APP_VERSION` in `ode/__init__.py`) for every release.
+  `{"version": "1.0.4"}`. Bump it (and `APP_VERSION` in `ode/__init__.py`) for every release.
 - The emulator, platform-tools and system images come straight from Google's servers and are covered by the
   [Android SDK License Agreement](https://developer.android.com/studio/terms). Android is a trademark of Google LLC;
   ODE is not affiliated with Google.

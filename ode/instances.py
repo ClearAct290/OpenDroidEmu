@@ -11,7 +11,7 @@ import time
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
-from . import paths, sdk
+from . import paths, sdcard, sdk
 
 ARCH_LABELS = {
     "x86": "x86",
@@ -39,6 +39,15 @@ def translates_arm(arch: str) -> bool:
 
 GFX_LABELS = {"dx": "DirectX", "gl": "OpenGL", "vk": "Vulkan"}
 GPU_MODE = {"dx": "angle_indirect", "gl": "host", "vk": "host"}
+
+# Boot mode: Quick Boot resumes the state Android saved when the emulator window was closed (fast);
+# Cold Boot starts Android from scratch every time (slow, but always clean).
+BOOT_LABELS = {
+    "quick": "Quick Boot (resume the saved state)",
+    "cold": "Cold Boot (full startup every time)",
+}
+DEFAULT_BOOT = "quick"
+DEFAULT_TITLE = "My Android Instance #"
 
 ALLOC_LABELS = {
     "dynamic": "Dynamic expansion (grows as used)",
@@ -71,7 +80,6 @@ class Instance:
     image_pkg: str
     gfx: str
     install_dir: str
-    shared_dir: str
     disk_mb: int
     alloc: str
     cores: int
@@ -82,6 +90,8 @@ class Instance:
     created: float
     starred: bool = False
     star_ts: float = 0.0
+    boot: str = DEFAULT_BOOT              # "quick" | "cold" (instances from before 1.0.3 get "quick")
+    sd_mb: int = sdcard.DEFAULT_SD_MB     # virtual SD card size in MB, 0 = no SD card (older instances get the default)
 
     @property
     def abi(self) -> str:
@@ -166,6 +176,19 @@ def make_avd_id(title: str, taken) -> str:
     return name
 
 
+def next_default_title(titles) -> str:
+    """'My Android Instance #1', '#2', ... - the lowest number no existing instance uses."""
+    used = set()
+    for t in titles:
+        m = re.fullmatch(re.escape(DEFAULT_TITLE) + r"(\d+)", str(t).strip())
+        if m:
+            used.add(int(m.group(1)))
+    n = 1
+    while n in used:
+        n += 1
+    return f"{DEFAULT_TITLE}{n}"
+
+
 # ------------------------------------------------------------- AVD files for the emulator
 def config_text(inst: Instance) -> str:
     _label, width, height, dpi, orient = DISPLAYS[inst.display]
@@ -181,7 +204,9 @@ def config_text(inst: Instance) -> str:
         # "Dynamic" = thin-provisioned qcow2 userdata, "Pre-allocated" = raw image at full size
         ("disk.dataPartition.size", f"{inst.disk_mb}M"),
         ("userdata.useQcow2", "yes" if inst.alloc == "dynamic" else "no"),
-        ("fastboot.forceColdBoot", "no"),
+        # Quick Boot = resume the default_boot snapshot, Cold Boot = never load it
+        ("fastboot.forceColdBoot", "yes" if inst.boot == "cold" else "no"),
+        ("fastboot.forceFastBoot", "no" if inst.boot == "cold" else "yes"),
         ("hw.accelerometer", "yes"),
         ("hw.audioInput", "yes"),
         ("hw.audioOutput", "yes"),
@@ -204,7 +229,8 @@ def config_text(inst: Instance) -> str:
         ("hw.lcd.vsync", str(inst.fps)),           # guest refresh rate = FPS cap
         ("hw.mainKeys", "no"),
         ("hw.ramSize", str(inst.ram_mb)),
-        ("hw.sdCard", "no"),
+        ("hw.sdCard", "yes" if inst.sd_mb > 0 else "no"),
+        *((("sdcard.size", f"{inst.sd_mb}M"),) if inst.sd_mb > 0 else ()),
         ("hw.sensors.orientation", "yes"),
         ("hw.sensors.proximity", "yes"),
         ("hw.trackBall", "no"),
@@ -325,8 +351,12 @@ def emulator_args(inst: Instance, port: int, recovery: bool = False) -> list:
         features.append("-GLAsyncSwap")            # synchronous swaps follow the display refresh
     if features:
         args += ["-feature", ",".join(features)]
+    if inst.sd_mb > 0 and sdcard.image_path(inst).is_file():
+        args += ["-sdcard", str(sdcard.image_path(inst))]
     if recovery:
         args.append("-no-snapshot")
+    elif inst.boot == "cold":
+        args.append("-no-snapshot-load")           # Cold Boot: never resume a saved state
         ramdisk = recovery_ramdisk(inst)
         if ramdisk:
             args += ["-ramdisk", str(ramdisk)]

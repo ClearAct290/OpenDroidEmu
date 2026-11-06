@@ -2,6 +2,24 @@
 
 All notable changes to OpenDroidEmu (ODE). A new entry is added with every update.
 
+## 1.0.4
+
+### Added
+- **Virtual SD card**, with a size setting on the Create page and in an instance's Settings (64 MB to 100 GB, or
+  *No SD card*; default 2 GB). Before every start ODE makes sure the card image exists with the configured size and
+  passes it to the emulator, and the AVD config gets `hw.sdCard=yes` and `sdcard.size`. Apps like the camera and
+  file managers now have a card to save photos and downloads to, on older and newer Android versions alike.
+  Instances created before 1.0.4 get a 2 GB card on their next start.
+- Changing the SD card size replaces the card with an empty one of the new size (the old card, its overlay and the
+  saved Quick Boot state are removed, so the next start is a full boot). ODE asks for confirmation first. Android's
+  own storage and installed apps are not touched.
+- The instance card shows the SD card size.
+
+### Fixed
+- A stray `adb` left behind (after a crash, a kill, or a power loss) could break reopening ODE or launching an
+  instance. ODE now shuts adb down whenever no instance is running (after the last emulator stops, when ODE closes,
+  and at startup), and never while a launch is starting adb.
+
 ## 1.0.3
 
 ### Added
